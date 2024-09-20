@@ -1,0 +1,143 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Deploy MongoDB using a VPC with two private subnets
+Parameters:
+  
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+
+  PrivateSubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: List of private subnet ID's to put the tasks in
+
+  DocUsername:
+    NoEcho: "true"
+    Description : "The database admin account username"
+    Type: "String"
+    MinLength: "1"
+    MaxLength: "16"
+    AllowedPattern: "[a-zA-Z][a-zA-Z0-9]*"
+    ConstraintDescription : "Must begin with a letter and contain only alphanumeric characters."
+
+  
+  DocUserPassword:
+    NoEcho: "true"
+    Description : "The database admin account password"
+    Type: "String"
+    MinLength: "1"
+    MaxLength: "41"
+    AllowedPattern : "[a-zA-Z0-9]+"
+    ConstraintDescription : "must contain only alphanumeric characters."
+
+  DocDBInstanceType:
+    Type: String
+    Description: Instance type for DocumentDB cluster
+    Default: db.t3.medium
+    AllowedValues:
+      - db.t3.medium
+      - db.r5.large
+      - db.r5.xlarge
+      - db.r5.2xlarge
+      - db.r5.4xlarge
+      - db.r5.12xlarge
+      - db.r5.24xlarge
+    Description : "Instance class. Please refer to: https://docs.aws.amazon.com/documentdb/latest/developerguide/db-instance-classes.html#db-instance-classes-by-region"
+ 
+  DBClusterName: 
+    Default: "MyCluster"
+    Description : "Cluster name"
+    Type: "String"
+    MinLength: "1"
+    MaxLength: "64"
+    AllowedPattern : "[a-zA-Z][a-zA-Z0-9]*(-[a-zA-Z0-9]+)*"
+    ConstraintDescription : "Must begin with a letter and contain only alphanumeric characters."
+
+  DBInstanceName: 
+    Default: "MyInstance"
+    Description : "Instance name"
+    Type: "String"
+    MinLength: "1"
+    MaxLength: "64"
+    AllowedPattern : "[a-zA-Z][a-zA-Z0-9]*(-[a-zA-Z0-9]+)*"
+    ConstraintDescription : "Must begin with a letter and contain only alphanumeric characters."
+
+Resources:
+
+  DBSecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      VpcId: !Ref VpcId
+      GroupDescription: "DB instances security group"
+      GroupName: "paywall-db-instance-SG"
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: '22017'
+          ToPort: '22017'
+          CidrIp: 10.100.0.0/16
+        - IpProtocol: tcp
+          FromPort: '22017'
+          ToPort: '22017'
+          CidrIp: 0.0.0.0/0    
+
+
+  DBSubnetGroup: 
+    Type: AWS::DocDB::DBSubnetGroup
+    Properties: 
+      DBSubnetGroupDescription: "paywall document db subnet group"
+      DBSubnetGroupName: "paywall-mongodb-subnet-group"
+      SubnetIds: !Ref PrivateSubnetIds
+
+  DocDBParameterGroupEnabled:
+    Type: AWS::DocDB::DBClusterParameterGroup    
+    Properties: 
+      Family: "docdb4.0"
+      Description: "Parametros para deshabilitar el TLS"
+      Name: "parametersMongoDBPaywall"
+      Parameters: 
+        tls: "disabled"
+
+  DocumentDBCluster:
+    Type: "AWS::DocDB::DBCluster"
+    DeletionPolicy: Delete
+    Properties:
+      DBClusterIdentifier: !Ref DBClusterName
+      MasterUsername: !Ref DocUsername
+      MasterUserPassword: !Ref DocUserPassword
+      DBSubnetGroupName : !Ref DBSubnetGroup
+      StorageEncrypted: yes
+      EngineVersion: 4.0.0
+      VpcSecurityGroupIds: 
+        - !Ref DBSecurityGroup
+      Tags: 
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-DocumentDB
+  
+  DocumentDBInstance:
+    Type: "AWS::DocDB::DBInstance"
+    Properties:
+      DBClusterIdentifier: !Ref DocumentDBCluster
+      DBInstanceIdentifier: !Ref DBInstanceName
+      DBInstanceClass: !Ref DocDBInstanceType
+    DependsOn: DocumentDBCluster
+
+  DocDBSecret:
+    Type: 'AWS::SecretsManager::Secret'
+    Properties:
+      Name: !Sub ${AWS::StackName}-DocDBSecret
+      Description: This secret has the credentials for the DocumentDB cluster
+      SecretString:
+        !Join
+          - '' 
+          - - '{"username":"'
+            - !Ref DocUsername
+            - '","password":"'
+            - !Ref DocUserPassword
+            - '", "ssl": true}'
+  
+  SecretDocDBClusterAttachment:
+    Type: AWS::SecretsManager::SecretTargetAttachment
+    Properties:
+      SecretId: !Ref DocDBSecret
+      TargetId: !Ref DocumentDBCluster
+      TargetType: AWS::DocDB::DBCluster
+
+

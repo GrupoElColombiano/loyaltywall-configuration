@@ -1,0 +1,696 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Deploys a Fargate cluster
+
+Parameters:
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+
+  PublicSubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: List of public subnet ID's to put the load balancer in
+  PrivateSubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: List of private subnet ID's to put the tasks in
+  ClusterName:
+    Type: String
+    Description: The name of the ECS cluster into which to launch capacity.
+
+  ServiceNameBackAdmin:
+    Type: String
+    Default: backend-admin
+    Description: A name for the service
+  ImageUrlBackAdmin:
+    Type: String
+    Default: heggar/loyaltywall-backend-admin:latest
+    Description:
+      The url of a docker image that contains the application process that
+      will handle the traffic for this service
+
+  ServiceNameBackClient:
+    Type: String
+    Default: backend-client
+    Description: A name for the service
+  ImageUrlBackClient:
+    Type: String
+    Default: heggar/loyaltywall-backend-client:latest
+    Description:
+      The url of a docker image that contains the application process that
+      will handle the traffic for this service
+
+  ServiceNameMarketPlace:
+    Type: String
+    Default: market-place
+    Description: A name for the service
+  ImageUrlMarketPlace:
+    Type: String
+    Default: 230071806171.dkr.ecr.us-east-1.amazonaws.com/loyaltywall-market-place
+    Description:
+      The url of a docker image that contains the application process that
+      will handle the traffic for this service
+
+  ServiceNameFrontAdmin:
+    Type: String
+    Default: frontend-admin
+    Description: A name for the service
+  ImageUrlFrontAdmin:
+    Type: String
+    Default: 230071806171.dkr.ecr.us-east-1.amazonaws.com/frontend-admin-dev:latest
+    Description:
+      The url of a docker image that contains the application process that
+      will handle the traffic for this service
+
+  ServiceNameFrontClient:
+    Type: String
+    Default: frontend-client
+    Description: A name for the service
+  ImageUrlFrontClient:
+    Type: String
+    Default: 230071806171.dkr.ecr.us-east-1.amazonaws.com/frontend-client-dev:latest
+    Description:
+      The url of a docker image that contains the application process that
+      will handle the traffic for this service
+
+  ContainerCpu:
+    Type: Number
+    Default: 256
+    Description: How much CPU to give the container. 1024 is 1 CPU
+  ContainerMemory:
+    Type: Number
+    Default: 512
+    Description: How much memory in megabytes to give the container
+  ContainerPort:
+    Type: Number
+    Default: 80
+    Description: What port that the application expects traffic on
+  DesiredCount:
+    Type: Number
+    Default: 2
+    Description: How many copies of the service task to run
+
+  CertificateArn:
+    Type: String
+    Description: Selecciona el certificado SSL/TLS de AWS Certificate Manager (ACM) que deseas utilizar.
+
+Resources:
+  FargateCluster:
+    Type: "AWS::ECS::Cluster"
+    Properties:
+      ClusterName: !Ref ClusterName
+      ClusterSettings:
+        - Name: containerInsights
+          Value: enabled
+  ECSTaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: [ecs-tasks.amazonaws.com]
+            Action: ["sts:AssumeRole"]
+      Path: /
+      # This role enables all features of ECS. See reference:
+      # https://docs.aws.amazon.com/AmazonECS/latest/developerguide/security-iam-awsmanpol.html#security-iam-awsmanpol-AmazonECSTaskExecutionRolePolicy
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+
+  # The task definition. This is a simple metadata description of what
+  # container to run, and what resource requirements it has.
+  TaskDefinitionBackAdmin:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Ref ServiceNameBackAdmin
+      Cpu: !Ref ContainerCpu
+      Memory: !Ref ContainerMemory
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      ExecutionRoleArn: !Ref ECSTaskExecutionRole
+      ContainerDefinitions:
+        - Name: !Ref ServiceNameBackAdmin
+          Cpu: !Ref ContainerCpu
+          Memory: !Ref ContainerMemory
+          Image: !Ref ImageUrlBackAdmin
+          PortMappings:
+            - ContainerPort: 3000
+              HostPort: 3000
+          Environment:
+            - name: POSTGRES_DB
+              value: paywalldb
+            - name: POSTGRES_USER
+              value: dbadmin
+            - name: POSTGRES_PASSWORD
+              value: 89]iP*VwIF5F6.5T8FzAviAg<9UY=tn!
+            - name: POSTGRES_HOST
+              value: loyaltywallekscluster-rdsdb-exqcsreipi8u.crnoqmebp3b3.us-east-1.rds.amazonaws.com
+            - name: POSTGRES_PORT
+              value: 5432
+            - name: DATABASE_URL
+              value: postgres://dbadmin:89]iP*VwIF5F6.5T8FzAviAg<9UY=tn!@loyaltywallekscluster-rdsdb-exqcsreipi8u.crnoqmebp3b3.us-east-1.rds.amazonaws.com:5432/paywalldb
+            - name: KEYCLOAK_AUTH_SERVER_URL
+              value: https://auth.loyaltywall.com/
+            - name: KEYCLOAK_CLIENT_ID
+              value: backend-admin-paywall
+            - name: KEYCLOAK_CLIENT_ID_NUMBER
+              value: 99474607-ec4e-466a-b1fd-bd630352ec91
+            - name: KEYCLOAK_REALM
+              value: loyaltywall-admin-test
+            - name: KEYCLOAK_SECRET
+              value: Mj6t1McDIDaQujOPPXSQ2ohYkegzez4g
+            - name: DB_NAME
+              value: salgar-dorada-fc
+            - name: USER
+              value: loyaltywall
+            - name: PASSWORD
+              value: loyaltywall
+            - name: HOST
+              value: paywall.crnoqmebp3b3.us-east-1.docdb.amazonaws.com
+            - name: PORT
+              value: 27017
+          LogConfiguration:
+            LogDriver: "awslogs"
+            Options:
+              awslogs-group: !Ref LogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: !Ref ServiceNameBackAdmin
+
+  # The task definition. This is a simple metadata description of what
+  # container to run, and what resource requirements it has.
+  TaskDefinitionBackClient:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Ref ServiceNameBackClient
+      Cpu: !Ref ContainerCpu
+      Memory: !Ref ContainerMemory
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      ExecutionRoleArn: !Ref ECSTaskExecutionRole
+      ContainerDefinitions:
+        - Name: !Ref ServiceNameBackClient
+          Cpu: !Ref ContainerCpu
+          Memory: !Ref ContainerMemory
+          Image: !Ref ImageUrlBackClient
+          PortMappings:
+            - ContainerPort: 3000
+              HostPort: 3000
+          Environment:
+            - name: POSTGRES_DB
+              value: paywalldb
+            - name: POSTGRES_USER
+              value: dbadmin
+            - name: POSTGRES_PASSWORD
+              value: 89]iP*VwIF5F6.5T8FzAviAg<9UY=tn!
+            - name: POSTGRES_HOST
+              value: loyaltywallekscluster-rdsdb-exqcsreipi8u.crnoqmebp3b3.us-east-1.rds.amazonaws.com
+            - name: POSTGRES_PORT
+              value: 5432
+            - name: DATABASE_URL
+              value: postgres://dbadmin:89]iP*VwIF5F6.5T8FzAviAg<9UY=tn!@loyaltywallekscluster-rdsdb-exqcsreipi8u.crnoqmebp3b3.us-east-1.rds.amazonaws.com:5432/paywalldb
+            - name: GOOGLE_CLIENT_ID
+              value: 1053958341759-bbpqij5ijenelccmj10sictcgilkljkv.apps.googleusercontent.com
+            - name: GOOGLE_SECRET
+              value: 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
+            - name: GOOGLE_USER
+              value: ddpeream@unal.edu.co
+            - name: GOOGLE_PASS
+              value: abtethusrgxdsuq
+            - name: GOOGLE_HOST
+              value: smtp.gmail.com
+            - name: GOOGLE_PORT
+              value: 465
+            - name: GOOGLE_SECURE
+              value: true
+            - name: FB_ID
+              value: 1653924145075069
+            - name: FB_SECRET
+              value: e8f323582069b6885b27038697ebf5cf
+          LogConfiguration:
+            LogDriver: "awslogs"
+            Options:
+              awslogs-group: !Ref LogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: !Ref ServiceNameBackClient
+
+    # The task definition. This is a simple metadata description of what
+  # container to run, and what resource requirements it has.
+  TaskDefinitionFrontAdmin:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Ref ServiceNameFrontAdmin
+      Cpu: !Ref ContainerCpu
+      Memory: !Ref ContainerMemory
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      ExecutionRoleArn: !Ref ECSTaskExecutionRole
+      ContainerDefinitions:
+        - Name: !Ref ServiceNameFrontAdmin
+          Cpu: !Ref ContainerCpu
+          Memory: !Ref ContainerMemory
+          Image: !Ref ImageUrlFrontAdmin
+          PortMappings:
+            - ContainerPort: 80
+              HostPort: 80
+          LogConfiguration:
+            LogDriver: "awslogs"
+            Options:
+              awslogs-group: !Ref LogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: !Ref ServiceNameFrontAdmin
+
+    # The task definition. This is a simple metadata description of what
+  # container to run, and what resource requirements it has.
+  TaskDefinitionMarketPlace:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Ref ServiceNameMarketPlace
+      Cpu: !Ref ContainerCpu
+      Memory: !Ref ContainerMemory
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      ExecutionRoleArn: !Ref ECSTaskExecutionRole
+      ContainerDefinitions:
+        - Name: !Ref ServiceNameMarketPlace
+          Cpu: !Ref ContainerCpu
+          Memory: !Ref ContainerMemory
+          Image: !Ref ImageUrlMarketPlace
+          PortMappings:
+            - ContainerPort: 3000
+              HostPort: 3000
+          LogConfiguration:
+            LogDriver: "awslogs"
+            Options:
+              awslogs-group: !Ref LogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: !Ref ServiceNameMarketPlace
+  # The task definition. This is a simple metadata description of what
+  # container to run, and what resource requirements it has.
+  TaskDefinitionFrontClient:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Ref ServiceNameFrontClient
+      Cpu: !Ref ContainerCpu
+      Memory: !Ref ContainerMemory
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      ExecutionRoleArn: !Ref ECSTaskExecutionRole
+      ContainerDefinitions:
+        - Name: !Ref ServiceNameFrontClient
+          Cpu: !Ref ContainerCpu
+          Memory: !Ref ContainerMemory
+          Image: !Ref ImageUrlFrontClient
+          PortMappings:
+            - ContainerPort: 80
+              HostPort: 80
+          LogConfiguration:
+            LogDriver: "awslogs"
+            Options:
+              awslogs-group: !Ref LogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: !Ref ServiceNameFrontClient
+  # The service. The service is a resource which allows you to run multiple
+  # copies of a type of task, and gather up their logs and metrics, as well
+  # as monitor the number of running tasks and replace any that have crashed
+  ServiceBackAdmin:
+    Type: AWS::ECS::Service
+    # Avoid race condition between ECS service creation and associating
+    # the target group with the LB
+    DependsOn: PublicLoadBalancerListenerBackAdmin
+    Properties:
+      ServiceName: !Ref ServiceNameBackAdmin
+      Cluster: !Ref ClusterName
+      LaunchType: FARGATE
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: ENABLED
+          SecurityGroups:
+            - !Ref ServiceSecurityGroup
+          Subnets: !Ref PrivateSubnetIds
+      DeploymentConfiguration:
+        MaximumPercent: 200
+        MinimumHealthyPercent: 75
+      DesiredCount: !Ref DesiredCount
+      TaskDefinition: !Ref TaskDefinitionBackAdmin
+      LoadBalancers:
+        - ContainerName: !Ref ServiceNameBackAdmin
+          ContainerPort: 3000
+          TargetGroupArn: !Ref ServiceTargetGroupBackAdmin
+  # The service. The service is a resource which allows you to run multiple
+  # copies of a type of task, and gather up their logs and metrics, as well
+  # as monitor the number of running tasks and replace any that have crashed
+  ServiceBackClient:
+    Type: AWS::ECS::Service
+    # Avoid race condition between ECS service creation and associating
+    # the target group with the LB
+    DependsOn: PublicLoadBalancerListenerBackClient
+    Properties:
+      ServiceName: !Ref ServiceNameBackClient
+      Cluster: !Ref ClusterName
+      LaunchType: FARGATE
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: ENABLED
+          SecurityGroups:
+            - !Ref ServiceSecurityGroup
+          Subnets: !Ref PrivateSubnetIds
+      DeploymentConfiguration:
+        MaximumPercent: 200
+        MinimumHealthyPercent: 75
+      DesiredCount: !Ref DesiredCount
+      TaskDefinition: !Ref TaskDefinitionBackClient
+      LoadBalancers:
+        - ContainerName: !Ref ServiceNameBackClient
+          ContainerPort: 3000
+          TargetGroupArn: !Ref ServiceTargetGroupBackClient
+  # The service. The service is a resource which allows you to run multiple
+  # copies of a type of task, and gather up their logs and metrics, as well
+  # as monitor the number of running tasks and replace any that have crashed
+  ServiceMarketPlace:
+    Type: AWS::ECS::Service
+    Properties:
+      ServiceName: !Ref ServiceNameMarketPlace
+      Cluster: !Ref ClusterName
+      LaunchType: FARGATE
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: ENABLED
+          SecurityGroups:
+            - !Ref ServiceSecurityGroup
+          Subnets: !Ref PrivateSubnetIds
+      DeploymentConfiguration:
+        MaximumPercent: 200
+        MinimumHealthyPercent: 75
+      DesiredCount: !Ref DesiredCount
+      TaskDefinition: !Ref TaskDefinitionMarketPlace
+      LoadBalancers:
+        - ContainerName: !Ref ServiceNameMarketPlace
+          ContainerPort: 3000
+          TargetGroupArn: !Ref ServiceTargetGroupMarketPlace
+
+  ServiceFrontAdmin:
+    Type: AWS::ECS::Service
+    Properties:
+      ServiceName: !Ref ServiceNameFrontAdmin
+      Cluster: !Ref ClusterName
+      LaunchType: FARGATE
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: ENABLED
+          SecurityGroups:
+            - !Ref ServiceSecurityGroup
+          Subnets: !Ref PrivateSubnetIds
+      DeploymentConfiguration:
+        MaximumPercent: 200
+        MinimumHealthyPercent: 75
+      DesiredCount: !Ref DesiredCount
+      TaskDefinition: !Ref TaskDefinitionFrontAdmin
+      LoadBalancers:
+        - ContainerName: !Ref ServiceNameFrontAdmin
+          ContainerPort: 80
+          TargetGroupArn: !Ref ServiceTargetGroupFrontAdmin
+
+  ServiceFrontClient:
+    Type: AWS::ECS::Service
+    Properties:
+      ServiceName: !Ref ServiceNameFrontClient
+      Cluster: !Ref ClusterName
+      LaunchType: FARGATE
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: ENABLED
+          SecurityGroups:
+            - !Ref ServiceSecurityGroup
+          Subnets: !Ref PrivateSubnetIds
+      DeploymentConfiguration:
+        MaximumPercent: 200
+        MinimumHealthyPercent: 75
+      DesiredCount: !Ref DesiredCount
+      TaskDefinition: !Ref TaskDefinitionFrontClient
+      LoadBalancers:
+        - ContainerName: !Ref ServiceNameFrontClient
+          ContainerPort: 80
+          TargetGroupArn: !Ref ServiceTargetGroupFrontClient
+
+  # Open up the service's security group to traffic originating
+  # from the security group of the load balancer.
+  ServiceIngressfromLoadBalancer:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      Description: Ingress from the public ALB
+      GroupId: !Ref ServiceSecurityGroup
+      IpProtocol: -1
+      SourceSecurityGroupId: !Ref "PublicLoadBalancerSG"
+
+  # Security group that limits network access
+  # to the task
+  ServiceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for service
+      VpcId: !Ref VpcId
+
+  # Keeps track of the list of tasks for the service
+  ServiceTargetGroupBackAdmin:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      HealthCheckIntervalSeconds: 6
+      HealthCheckPath: /
+      HealthCheckProtocol: HTTP
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      TargetType: ip
+      Port: 3000
+      Protocol: HTTP
+      UnhealthyThresholdCount: 10
+      VpcId: !Ref VpcId
+      TargetGroupAttributes:
+        - Key: deregistration_delay.timeout_seconds
+          Value: 0
+
+  # Keeps track of the list of tasks for the service
+  ServiceTargetGroupBackClient:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      HealthCheckIntervalSeconds: 6
+      HealthCheckPath: /
+      HealthCheckProtocol: HTTP
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      TargetType: ip
+      Port: 3000
+      Protocol: HTTP
+      UnhealthyThresholdCount: 10
+      VpcId: !Ref VpcId
+      TargetGroupAttributes:
+        - Key: deregistration_delay.timeout_seconds
+          Value: 0
+
+  # Keeps track of the list of tasks for the service
+  ServiceTargetGroupFrontAdmin:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      HealthCheckIntervalSeconds: 6
+      HealthCheckPath: /
+      HealthCheckProtocol: HTTP
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      TargetType: ip
+      Port: 80
+      Protocol: HTTP
+      UnhealthyThresholdCount: 10
+      VpcId: !Ref VpcId
+      TargetGroupAttributes:
+        - Key: deregistration_delay.timeout_seconds
+          Value: 0
+
+    # Keeps track of the list of tasks for the service
+  ServiceTargetGroupFrontClient:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      HealthCheckIntervalSeconds: 6
+      HealthCheckPath: /
+      HealthCheckProtocol: HTTP
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      TargetType: ip
+      Port: 80
+      Protocol: HTTP
+      UnhealthyThresholdCount: 10
+      VpcId: !Ref VpcId
+      TargetGroupAttributes:
+        - Key: deregistration_delay.timeout_seconds
+          Value: 0
+
+  # Keeps track of the list of tasks for the service
+  ServiceTargetGroupMarketPlace:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      HealthCheckIntervalSeconds: 6
+      HealthCheckPath: /admin/login
+      HealthCheckProtocol: HTTP
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      TargetType: ip
+      Port: 3000
+      Protocol: HTTP
+      UnhealthyThresholdCount: 10
+      VpcId: !Ref VpcId
+      TargetGroupAttributes:
+        - Key: deregistration_delay.timeout_seconds
+          Value: 0
+
+  # This log group stores the stdout logs from this service's containers
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+
+  # A public facing load balancer, this is used as ingress for
+  # public facing internet traffic.
+  PublicLoadBalancerSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Access to the public facing load balancer
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        # Allow access to public facing ALB from any IP address
+        - CidrIp: 0.0.0.0/0
+          IpProtocol: -1
+
+  PublicLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Scheme: internet-facing
+      LoadBalancerAttributes:
+        - Key: idle_timeout.timeout_seconds
+          Value: "30"
+      Subnets: !Ref PublicSubnetIds
+      SecurityGroups:
+        - !Ref PublicLoadBalancerSG
+
+  PublicLoadBalancerClient:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Scheme: internet-facing
+      LoadBalancerAttributes:
+        - Key: idle_timeout.timeout_seconds
+          Value: "30"
+      Subnets: !Ref PublicSubnetIds
+      SecurityGroups:
+        - !Ref PublicLoadBalancerSG
+
+  PublicLoadBalancerMarketPlace:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Scheme: internet-facing
+      LoadBalancerAttributes:
+        - Key: idle_timeout.timeout_seconds
+          Value: "30"
+      Subnets: !Ref PublicSubnetIds
+      SecurityGroups:
+        - !Ref PublicLoadBalancerSG
+
+  PublicLoadBalancerListenerBackAdmin:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    DependsOn:
+      - PublicLoadBalancer
+    Properties:
+      DefaultActions:
+        - Type: "forward"
+          ForwardConfig:
+            TargetGroups:
+              - TargetGroupArn: !Ref ServiceTargetGroupBackAdmin
+                Weight: 100
+      LoadBalancerArn: !Ref "PublicLoadBalancer"
+      Port: 3002
+      Protocol: HTTP
+
+  PublicLoadBalancerListenerBackClient:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    DependsOn:
+      - PublicLoadBalancer
+    Properties:
+      DefaultActions:
+        - Type: "forward"
+          ForwardConfig:
+            TargetGroups:
+              - TargetGroupArn: !Ref ServiceTargetGroupBackClient
+                Weight: 100
+      LoadBalancerArn: !Ref "PublicLoadBalancer"
+      Port: 3001
+      Protocol: HTTP
+
+  PublicLoadBalancerListenerFrontAdmin:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - Type: "forward"
+          ForwardConfig:
+            TargetGroups:
+              - TargetGroupArn: !Ref ServiceTargetGroupFrontAdmin
+                Weight: 100
+      LoadBalancerArn: !Ref "PublicLoadBalancer"
+      Port: 8081
+      Protocol: HTTP
+
+  PublicLoadBalancerListenerFrontClient:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - Type: "forward"
+          ForwardConfig:
+            TargetGroups:
+              - TargetGroupArn: !Ref ServiceTargetGroupFrontClient
+                Weight: 100
+      LoadBalancerArn: !Ref "PublicLoadBalancerClient"
+      Port: 8081
+      Protocol: HTTP
+
+  PublicLoadBalancerListenerMarketPlace:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - Type: "forward"
+          ForwardConfig:
+            TargetGroups:
+              - TargetGroupArn: !Ref ServiceTargetGroupMarketPlace
+                Weight: 100
+      LoadBalancerArn: !Ref "PublicLoadBalancerMarketPlace"
+      Port: 8082
+      Protocol: HTTP
+
+  PublicLoadBalancerListenerHTTPSFrontAdmin:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - Type: "forward"
+          ForwardConfig:
+            TargetGroups:
+              - TargetGroupArn: !Ref ServiceTargetGroupFrontAdmin
+                Weight: 100
+      LoadBalancerArn: !Ref "PublicLoadBalancer"
+      Port: 443
+      Protocol: HTTPS
+      Certificates:
+        - CertificateArn: !Ref CertificateArn
+
+  PublicLoadBalancerListenerHTTPSFrontClient:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - Type: "forward"
+          ForwardConfig:
+            TargetGroups:
+              - TargetGroupArn: !Ref ServiceTargetGroupFrontClient
+                Weight: 100
+      LoadBalancerArn: !Ref "PublicLoadBalancerClient"
+      Port: 443
+      Protocol: HTTPS
+      Certificates:
+        - CertificateArn: !Ref CertificateArn
+
+Outputs:
+  FargateCluster:
+    Description: Fargate Cluster
+    Value: !Ref FargateCluster

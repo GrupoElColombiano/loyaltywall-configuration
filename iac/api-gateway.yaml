@@ -1,0 +1,115 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: API Gateway conectado a un Elastic Load Balancer (ELB)
+
+Parameters:
+    
+  CertificateArn:
+    Type: String
+    Description: Selecciona el certificado SSL/TLS de AWS Certificate Manager (ACM) que deseas utilizar.
+
+  PublicLoadBalancerListenerBackDNS:
+    Type: String
+    Description: Nombre del DNS del Application Load Balancer (ALB) que deseas utilizar
+
+Resources:
+  # Definición del Custom Domain Name
+  BackendAdminDevDomainName:
+    Type: AWS::ApiGateway::DomainName
+    Properties:
+      DomainName: api-dev.loyaltywall.com
+      CertificateArn: !Ref CertificateArn
+      EndpointConfiguration:
+        Types:
+          - EDGE
+      SecurityPolicy: TLS_1_2
+
+  # Definición del API Gateway
+  ApiGatewayBackDev:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: develop
+
+  # Definición de un recurso en el API Gateway
+  ApiGatewayResourceBackAdminDev:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref ApiGatewayBackDev
+      ParentId: !GetAtt ApiGatewayBackDev.RootResourceId
+      PathPart: admin
+
+  ApiGatewayResourceProxyBackAdminDev:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref ApiGatewayBackDev
+      ParentId: !Ref ApiGatewayResourceBackAdminDev
+      PathPart: '{proxy+}'
+
+  # Definición de un recurso en el API Gateway
+  ApiGatewayResourceBackClientDev:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref ApiGatewayBackDev
+      ParentId: !GetAtt ApiGatewayBackDev.RootResourceId
+      PathPart: client
+
+  ApiGatewayResourceProxyBackClientDev:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref ApiGatewayBackDev
+      ParentId: !Ref ApiGatewayResourceBackClientDev
+      PathPart: '{proxy+}'
+
+
+  # Definición del método GET para el recurso
+  ApiGatewayMethodBackAdminDev:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref ApiGatewayBackDev
+      ResourceId: !Ref ApiGatewayResourceProxyBackAdminDev
+      HttpMethod: ANY
+      AuthorizationType: NONE
+      RequestParameters:
+        method.request.path.proxy: true
+      Integration:
+        Type: HTTP_PROXY
+        IntegrationHttpMethod: ANY
+        Uri: !Sub 'http://${PublicLoadBalancerListenerBackDNS}:3002/{proxy}'
+        PassthroughBehavior: WHEN_NO_MATCH
+        RequestParameters:
+          integration.request.path.proxy: "method.request.path.proxy"
+
+  # Definición del método GET para el recurso
+  ApiGatewayMethodBackClientDev:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref ApiGatewayBackDev
+      ResourceId: !Ref ApiGatewayResourceProxyBackClientDev
+      HttpMethod: ANY
+      AuthorizationType: NONE
+      RequestParameters:
+        method.request.path.proxy: true
+      Integration:
+        Type: HTTP_PROXY
+        IntegrationHttpMethod: ANY
+        Uri: !Sub 'http://${PublicLoadBalancerListenerBackDNS}:3001/{proxy}'
+        PassthroughBehavior: WHEN_NO_MATCH
+        RequestParameters:
+          integration.request.path.proxy: "method.request.path.proxy"
+
+  ApiDeploymentBackDev:
+    Type: AWS::ApiGateway::Deployment
+    Properties:
+      RestApiId: !Ref ApiGatewayBackDev
+      StageName: dev
+    DependsOn:
+      - ApiGatewayMethodBackAdminDev
+      - ApiGatewayMethodBackClientDev
+
+  BackendDevPathMapping:
+    Type: AWS::ApiGateway::BasePathMapping
+    Properties:
+      DomainName: !Ref BackendAdminDevDomainName
+      RestApiId: !Ref ApiGatewayBackDev
+      BasePath: ""
+      Stage: dev

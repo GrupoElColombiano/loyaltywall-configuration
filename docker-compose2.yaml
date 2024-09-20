@@ -1,0 +1,62 @@
+services:
+  backend-admin:
+    image: "heggar/loyaltywall-backend-admin:latest"
+    ports:
+      - 3000:3000
+    environment:
+      - POSTGRES_DB=paywalldb
+      - POSTGRES_USER=dbadmin
+      - POSTGRES_PASSWORD=89]iP*VwIF5F6.5T8FzAviAg<9UY=tn!
+      - POSTGRES_HOST=loyaltywallekscluster-rdsdb-exqcsreipi8u.crnoqmebp3b3.us-east-1.rds.amazonaws.com
+      - POSTGRES_PORT=5432
+      - DATABASE_URL=postgres://dbadmin:89]iP*VwIF5F6.5T8FzAviAg<9UY=tn!@loyaltywallekscluster-rdsdb-exqcsreipi8u.crnoqmebp3b3.us-east-1.rds.amazonaws.com:5432/paywalldb
+    networks:
+      - paywall-network
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+  backend-client:
+    image: "heggar/loyaltywall-backend-client:latest"
+    ports:
+      - 3001:3000
+    environment:
+      - POSTGRES_DB=paywalldb
+      - POSTGRES_USER=dbadmin
+      - POSTGRES_PASSWORD=89]iP*VwIF5F6.5T8FzAviAg<9UY=tn!
+      - POSTGRES_HOST=loyaltywallekscluster-rdsdb-exqcsreipi8u.crnoqmebp3b3.us-east-1.rds.amazonaws.com
+      - POSTGRES_PORT=5432
+      - DATABASE_URL=postgres://dbadmin:89]iP*VwIF5F6.5T8FzAviAg<9UY=tn!@loyaltywallekscluster-rdsdb-exqcsreipi8u.crnoqmebp3b3.us-east-1.rds.amazonaws.com:5432/paywalldb
+      - POSTGRES_TYPE=postgres
+      - GOOGLE_CLIENT_ID=1053958341759-bbpqij5ijenelccmj10sictcgilkljkv.apps.googleusercontent.com
+      - GOOGLE_SECRET=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
+      - GOOGLE_USER=ddpeream@unal.edu.co
+      - GOOGLE_PASS=zabtethusrgxdsuq
+      - GOOGLE_HOST=smtp.gmail.com
+      - GOOGLE_PORT=465
+      - GOOGLE_SECURE=true
+      - FB_ID=1653924145075069
+      - FB_SECRET=e8f323582069b6885b27038697ebf5cf
+    networks:
+      - paywall-network
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+  
+  frontend-admin:
+    image: "heggar/loyaltywall-frontend-admin:latest"
+    ports:
+      - 8080:80
+    networks:
+      - paywall-network
+    environment:
+      - VITE_BASE_URL=http://localhost:3000
+  
+  frontend-client:
+    image: "heggar/loyaltywall-frontend-client:latest"
+    ports:
+      - 8081:80
+    networks:
+      - paywall-network
+    environment:
+      - VITE_BASE_URL=http://localhost:3001
+networks:
+  paywall-network:
+  

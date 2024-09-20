@@ -1,0 +1,288 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: EKS cluster using a VPC with two public subnets
+Parameters:
+  RDSDbSize:
+    Description: RDS instance type
+    Type: String
+    Default: db.t3.medium
+    AllowedValues:
+      - db.t3.medium
+      - db.t3.large
+      - db.m5.large
+      - db.m5.xlarge
+      - db.m5.2xlarge
+    ConstraintDescription: Must be one of the allowed RDS instance types.
+  RDSMultiAz:
+    Type: String
+    Description: Should RDS database be created in MultiAZ configuration?
+    Default: 'false'
+    AllowedValues:
+      - 'true'
+      - 'false'
+    ConstraintDescription: Value must be true or false
+ 
+
+Mappings:
+  VpcIpRanges:
+    Option1:
+      VPC: 10.100.0.0/16    
+      PublicSubnet1 : 10.100.0.0/20
+      PublicSubnet2: 10.100.16.0/20
+      PrivateSubnet1: 10.100.32.0/20
+      PrivateSubnet2: 10.100.48.0/20
+      PersistenceSubnet1: 10.100.64.0/20
+      PersistenceSubnet2: 10.100.80.0/20
+  EnvironmentToInstanceType:
+    dev:
+      InstanceType: t2.nano
+    test:
+      InstanceType: t2.micro
+    prod:
+      InstanceType: t2.small        
+  # IDs of the "EKS-optimised AMIs" for the worker nodes:
+  # https://docs.aws.amazon.com/eks/latest/userguide/eks-optimized-ami.html
+  # IMPORTANT NOTE: Choose AWS EKS compatible ami IDs only
+  EksAmiIds:    
+    us-east-1:
+      Standard: ami-033b95fb8079dc481    
+Resources:
+  #============================================================================#
+  # VPC
+  #============================================================================#
+
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !FindInMap [ VpcIpRanges, Option1, VPC ]
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !Ref AWS::StackName
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !FindInMap [ VpcIpRanges, Option1, PublicSubnet1 ]
+      AvailabilityZone: !Select [ 0, !GetAZs '' ]
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-PublicSubnet1"
+        - Key: kubernetes.io/role/elb
+          Value: 1
+        - Key: !Sub "kubernetes.io/cluster/${AWS::StackName}"
+          Value: shared          
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !FindInMap [ VpcIpRanges, Option1, PublicSubnet2 ]
+      AvailabilityZone: !Select [ 1, !GetAZs '' ]
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-PublicSubnet2"
+        - Key: kubernetes.io/role/elb
+          Value: 1
+        - Key: !Sub "kubernetes.io/cluster/${AWS::StackName}"
+          Value: shared          
+  PrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !FindInMap [ VpcIpRanges, Option1, PrivateSubnet1 ]
+      AvailabilityZone: !Select [ 0, !GetAZs '' ]
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-PrivateSubnet1"
+        - Key: kubernetes.io/role/internal-elb
+          Value: 1
+        - Key: !Sub "kubernetes.io/cluster/${AWS::StackName}"
+          Value: shared
+  PrivateSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !FindInMap [ VpcIpRanges, Option1, PrivateSubnet2 ]
+      AvailabilityZone: !Select [ 1, !GetAZs '' ]
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-PrivateSubnet2"
+        - Key: kubernetes.io/role/internal-elb
+          Value: 1
+        - Key: !Sub "kubernetes.io/cluster/${AWS::StackName}"
+          Value: shared          
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Ref AWS::StackName
+  VPCGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      InternetGatewayId: !Ref InternetGateway
+      VpcId: !Ref VPC
+  RouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-PublicSubnets"
+  InternetGatewayRoute:
+    Type: AWS::EC2::Route
+    DependsOn: VPCGatewayAttachment
+    Properties:
+      RouteTableId: !Ref RouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+  RouteTable1Association:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet1
+      RouteTableId: !Ref RouteTable
+  RouteTable2Association:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet2
+      RouteTableId: !Ref RouteTable          
+  
+  NatGateway1EIP:
+    Type: AWS::EC2::EIP
+    DependsOn: VPCGatewayAttachment
+    Properties:
+      Domain: vpc
+  NatGateway2EIP:
+    Type: AWS::EC2::EIP
+    DependsOn: VPCGatewayAttachment
+    Properties:
+      Domain: vpc
+  NatGateway1:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NatGateway1EIP.AllocationId
+      SubnetId: !Ref PublicSubnet1
+  NatGateway2:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NatGateway2EIP.AllocationId
+      SubnetId: !Ref PublicSubnet2
+  PrivateRouteTable1:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName} Private Routes (AZ1)
+  DefaultPrivateRoute1:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable1
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGateway1
+  PrivateRouteTable2:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName} Private Routes (AZ1)
+  DefaultPrivateRoute2:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable2
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGateway2
+
+  PrivateSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet1
+      RouteTableId: !Ref PrivateRouteTable1
+  PrivateSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet2
+      RouteTableId: !Ref PrivateRouteTable2
+
+
+  #============================================================================#
+  # RDS Postgres
+  #============================================================================#
+  PayWallDbSecret:
+    Type: "AWS::SecretsManager::Secret"
+    Properties:
+      KmsKeyId: "alias/aws/secretsmanager"
+      GenerateSecretString:
+        ExcludeLowercase: false
+        ExcludeNumbers: false
+        ExcludePunctuation: false
+        ExcludeUppercase: false
+        PasswordLength: 32
+        ExcludeCharacters: "/\"@\\"      
+    DeletionPolicy: Retain
+  RDSSubnetGroup:
+    Type: 'AWS::RDS::DBSubnetGroup'
+    Properties:
+      DBSubnetGroupDescription: PayWall DB-Subnet Group
+      SubnetIds:
+        - !Ref PublicSubnet1
+        - !Ref PublicSubnet2
+  VPCDBSecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: '5432'
+          ToPort: '5432'
+          CidrIp: !GetAtt VPC.CidrBlock
+        - IpProtocol: tcp
+          FromPort: '5432'
+          ToPort: '5432'
+          CidrIp: 0.0.0.0/0    
+      GroupDescription: Frontend Access
+  RDSDb:
+    Type: 'AWS::RDS::DBInstance'
+    DependsOn: VPCGatewayAttachment
+    Properties:
+      MultiAZ: false
+      AvailabilityZone: !Select [ 0, !GetAZs '' ]
+      VPCSecurityGroups:
+        - !Ref VPCDBSecurityGroup
+      DBSubnetGroupName: !Ref RDSSubnetGroup
+      AllocatedStorage: '5'
+      DBInstanceClass: !Ref RDSDbSize
+      DBName: paywalldb
+      Engine: postgres
+      MasterUsername: "dbadmin"
+      MasterUserPassword:
+        Fn::Sub: "{{resolve:secretsmanager:${PayWallDbSecret}}}"
+      DeleteAutomatedBackups: true
+      DeletionProtection: false
+      PubliclyAccessible: true
+    DeletionPolicy: Retain
+
+Outputs:
+  Address:
+    Description: RDS Database address
+    Value: !GetAtt 
+      - RDSDb
+      - Endpoint.Address
+    Export:
+      Name: !Sub '${AWS::StackName}-Address'
+  Port:
+    Description: RDS Database port
+    Value: !GetAtt 
+      - RDSDb
+      - Endpoint.Port
+    Export:
+      Name: !Sub '${AWS::StackName}-Port'
+  Identifier:
+    Description: RDS Database identifier
+    Value: !Ref RDSDb
+    Export:
+      Name: !Sub '${AWS::StackName}-Identifier'        
+
+
+
